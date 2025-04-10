@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Health Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #E3F2FD 0%, #90CAF9 100%);
+            min-height: 100vh;
+        }
+        .card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+        }
+        .cron-job-entry {
+            animation: fadeIn 0.5s ease-in;
+        }
+        .status-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.875rem;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .alert-card {
+            animation: slideIn 0.5s ease-out;
+        }
+        @keyframes slideIn {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8">Batch Health Analyzer</h1>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Main Content Area -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Order Management Card -->
+                <div class="card bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">Order Management</h2>
+                        <button class="text-blue-600 hover:text-blue-800">View All</button>
+                    </div>
+                    <div class="space-y-3" id="order-jobs"></div>
+                </div>
+
+                <!-- Tibco Card -->
+                <div class="card bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">Tibco</h2>
+                        <button class="text-blue-600 hover:text-blue-800">View All</button>
+                    </div>
+                    <div class="space-y-3" id="tibco-jobs"></div>
+                </div>
+
+                <!-- UIV Card -->
+                <div class="card bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">UIV</h2>
+                        <button class="text-blue-600 hover:text-blue-800">View All</button>
+                    </div>
+                    <div class="space-y-3" id="uiv-jobs"></div>
+                </div>
+            </div>
+
+            <!-- Status Panel -->
+            <div class="lg:col-span-1">
+                <div class="card bg-white rounded-lg shadow-lg p-6 sticky top-8">
+                    <h2 class="text-xl font-semibold mb-6">System Status</h2>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center">
+                            <span>Total Scheduled</span>
+                            <span class="font-semibold" id="total-jobs">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span>Successful</span>
+                            <span class="text-green-600 font-semibold" id="successful-jobs">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span>Failed</span>
+                            <span class="text-red-600 font-semibold" id="failed-jobs">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alert Section -->
+        <div id="alert-container" class="fixed bottom-8 right-8"></div>
+    </div>
+
+    <script>
+        class DashboardManager {
+            constructor() {
+                this.stats = {
+                    total: 0,
+                    successful: 0,
+                    failed: 0
+                };
+                this.jobQueues = {
+                    'order-jobs': [],
+                    'tibco-jobs': [],
+                    'uiv-jobs': []
+                };
+            }
+
+            createJobEntry(name, status, lastRun) {
+                const statusColors = {
+                    'Success': 'bg-green-100 text-green-800',
+                    'Failed': 'bg-red-100 text-red-800',
+                    'Scheduled': 'bg-blue-100 text-blue-800'
+                };
+
+                return `
+                    <div class="cron-job-entry flex justify-between items-center p-3 bg-gray-50 rounded-md">
+                        <div>
+                            <div class="font-medium">${name}</div>
+                            <div class="text-sm text-gray-600">${lastRun}</div>
+                        </div>
+                        <span class="status-badge ${statusColors[status]}">${status}</span>
+                    </div>
+                `;
+            }
+
+            updateStats() {
+                document.getElementById('total-jobs').textContent = this.stats.total;
+                document.getElementById('successful-jobs').textContent = this.stats.successful;
+                document.getElementById('failed-jobs').textContent = this.stats.failed;
+            }
+
+            showAlert(jobName, time, subsystem) {
+                const alertHtml = `
+                    <div class="alert-card bg-red-100 border-l-4 border-red-500 p-4 rounded-lg shadow-lg mb-4">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-exclamation-triangle text-red-500"></i>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm text-red-700">
+                                    Job Failed: ${jobName}<br>
+                                    System: ${subsystem}<br>
+                                    Time: ${time}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                const container = document.getElementById('alert-container');
+                const alert = document.createElement('div');
+                alert.innerHTML = alertHtml;
+                container.appendChild(alert);
+                setTimeout(() => alert.remove(), 5000);
+            }
+
+            addJob(containerId, job) {
+                const container = document.getElementById(containerId);
+                const queue = this.jobQueues[containerId];
+                
+                queue.unshift(job);
+                if (queue.length > 5) queue.pop();
+                
+                container.innerHTML = queue.map(j => 
+                    this.createJobEntry(j.name, j.status, j.lastRun)
+                ).join('');
+
+                if (job.status === 'Failed') {
+                    this.showAlert(job.name, job.lastRun, containerId.split('-')[0].toUpperCase());
+                }
+            }
+
+            simulateNewJobs() {
+                const systems = ['order-jobs', 'tibco-jobs', 'uiv-jobs'];
+                const statuses = ['Success', 'Failed', 'Scheduled'];
+                
+                setInterval(() => {
+                    const system = systems[Math.floor(Math.random() * systems.length)];
+                    const status = statuses[Math.floor(Math.random() * statuses.length)];
+                    const job = {
+                        name: `Job-${Math.random().toString(36).substr(2, 5)}`,
+                        status: status,
+                        lastRun: new Date().toLocaleTimeString()
+                    };
+
+                    this.addJob(system, job);
+                    this.stats.total++;
+                    if (status === 'Success') this.stats.successful++;
+                    if (status === 'Failed') this.stats.failed++;
+                    this.updateStats();
+                }, 3000);
+            }
+        }
+
+        // Initialize dashboard
+        const dashboard = new DashboardManager();
+        dashboard.simulateNewJobs();
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
